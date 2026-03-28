@@ -9,6 +9,8 @@ High-fidelity wireless digital audio interface supporting up to 192kHz/32bit aud
 - **Web Configuration**: Easy setup via captive portal
 - **Anti-Jitter Buffer**: Configurable ring buffer (50-500ms)
 - **Flexible Network**: DHCP or static IP configuration
+- **VBAN Support**: Compatible with Voicemeeter (Windows)
+- **Auto-Detect**: Automatically detects VBAN vs raw PCM format
 
 ## Hardware
 
@@ -29,7 +31,6 @@ High-fidelity wireless digital audio interface supporting up to 192kHz/32bit aud
 ## Software
 
 ### Build Requirements
-
 - PlatformIO (recommended) or Arduino IDE
 - ESP32 board support package
 
@@ -49,12 +50,35 @@ pio run --target upload
 4. Configure network and audio settings
 5. Click Save - device will restart
 
-### Audio Sender Requirements
+## Audio Sources
+
+### Method 1: VBAN (Recommended for Windows)
+
+1. Install [Voicemeeter](https://vb-audio.com/Voicemeeter/) (free)
+2. Set your music player output to "Voicemeeter Input"
+3. Open Voicemeeter, click "VBAN" button
+4. Add new stream:
+   - Destination: ESP32 IP address
+   - Port: 8000 (or your configured port)
+   - Sample Rate: match ESP32 setting
+   - Bit: 16-bit
+
+### Method 2: Raw PCM (Command Line)
+
+```bash
+# macOS/Linux
+ffmpeg -i music.flac -f s16le -ar 44100 -ac 2 - | nc -u <ESP32_IP> 8000
+
+# Windows (PowerShell, requires ffmpeg and netcat)
+ffmpeg -i music.flac -f s16le -ar 44100 -ac 2 - | nc -u <ESP32_IP> 8000
+```
+
+### Method 3: Custom Software
 
 - Protocol: UDP
-- Format: Raw PCM, Little-Endian
+- Format: Raw PCM or VBAN
 - Channels: Stereo interleaved (L R L R...)
-- Settings must match ESP32 configuration
+- Little-Endian byte order
 
 ## Configuration
 

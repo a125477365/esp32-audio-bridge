@@ -25,6 +25,7 @@
 #include "i2s_audio.h"
 #include "udp_receiver.h"
 #include "web_server.h"
+#include "vban.h"
 
 // Global objects
 AudioSettings settings;
@@ -32,6 +33,12 @@ RingBuffer audioBuffer;
 I2SAudio i2s;
 UDPReceiver udp;
 WebConfigServer* webServer = nullptr;
+VBANParser vbanParser;
+
+// Auto-detect mode
+bool autoDetectFormat = true;  // Auto-detect VBAN vs raw PCM
+uint32_t lastDetectedSampleRate = 0;
+uint8_t lastDetectedBits = 0;
 
 // System state
 SystemState currentState = STATE_CONFIG_MODE;
@@ -221,9 +228,50 @@ void processAudioStream() {
     int bytesRead = udp.readPacket(udpBuffer, sizeof(udpBuffer));
     
     if (bytesRead > 0) {
+        uint8_t* audioData = udpBuffer;
+        size_t audioLen = bytesRead;
+        
+        // Auto-detect VBAN vs raw PCM
+        if (VBANParser::isVBANPacket(udpBuffer, bytesRead)) {
+            // Parse VBAN packet
+            if (vbanParser.parse(udpBuffer, bytesRead)) {
+                audioData = (uint8_t*)vbanParser.getPCMData();
+                audioLen = vbanParser.getPCMLength();
+                
+                // Check if audio parameters changed
+                uint32_t vbanSR = vbanParser.getSampleRate();
+                uint8_t vbanBits = vbanParser.getBitsPerSample();
+                
+                if (autoDetectFormat && 
+                    (lastDetectedSampleRate != vbanSR || lastDetectedBits != vbanBits)) {
+                    
+                    if (lastDetectedSampleRate != vbanSR || lastDetectedBits != vbanBits) {
+                        DEBUG_SERIAL.printf("[VBAN] Detected: %lu Hz, %d bit\n", vbanSR, vbanBits);
+                        
+                        // Reinitialize I2S with detected parameters
+                        if (vbanSR > 0 && vbanBits > 0) {
+                            i2s.end();
+                            delay(100);
+                            i2s.begin(vbanSR, vbanBits, audioBuffer.size());
+                            
+                            lastDetectedSampleRate = vbanSR;
+                            lastDetectedBits = vbanBits;
+                            
+                            // Clear buffer on format change
+                            audioBuffer.clear();
+                            bufferStarted = false;
+                        }
+                    }
+                }
+            } else {
+                // VBAN parse failed, skip packet
+                return;
+            }
+        }
+        
         // Push to ring buffer
-        size_t pushed = audioBuffer.push(udpBuffer, bytesRead);
-        if (pushed < bytesRead) {
+        size_t pushed = audioBuffer.push(audioData, audioLen);
+        if (pushed < audioLen) {
             // Buffer full, data lost
             DEBUG_SERIAL.println("[AUDIO] Buffer overflow!");
         }
@@ -291,6 +339,10 @@ void printStatus() {
     DEBUG_SERIAL.printf(" Sample Rate: %lu Hz\n", settings.sampleRate);
     DEBUG_SERIAL.printf(" Bit Depth: %d bit\n", settings.bitsPerSample);
     DEBUG_SERIAL.printf(" Buffer: %u ms\n", settings.bufferMs);
+    DEBUG_SERIAL.println("---------------------------------");
+    DEBUG_SERIAL.println(" Supported formats:");
+    DEBUG_SERIAL.println(" - Raw PCM (UDP port 8000)");
+    DEBUG_SERIAL.println(" - VBAN (Voicemeeter)");
     DEBUG_SERIAL.println("=================================");
     DEBUG_SERIAL.println("Waiting for audio stream...");
     DEBUG_SERIAL.println("Hold BOOT button 5s to reset config");
