@@ -40,8 +40,8 @@ int wifiRetryCount = 0;
 // Reset button timing
 unsigned long resetPressStart = 0;
 bool resetButtonPressed = false;
-unsigned long startupTime = 0;  // Track startup time for button ignore
-const unsigned long BUTTON_IGNORE_MS = 5000;  // Ignore button long-press for 5s after startup
+unsigned long workingModeStartTime = 0;  // Track when working mode starts for button ignore
+const unsigned long BUTTON_IGNORE_MS = 10000;  // Ignore button long-press for 10s after entering working mode
 
 // Forward declarations
 void enterConfigMode();
@@ -90,8 +90,6 @@ void setup() {
     // Load settings from NVS
     settings.loadFromNVS();
 
-    // Record startup time
-    startupTime = millis();
 
     // Initialize reset button
     pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
@@ -198,7 +196,10 @@ void enterWorkingMode() {
         return;
     }
 
-    // Initialize UDP receiver
+	// Record working mode start time for button ignore
+	workingModeStartTime = millis();
+
+	// Initialize UDP receiver
     if (!udp.begin(settings.listenPort)) {
         DEBUG_SERIAL.println("[MAIN] ERROR: Failed to start UDP listener!");
         currentState = STATE_ERROR;
@@ -345,10 +346,10 @@ void handleResetButton() {
     if (resetButtonPressed && stableState == LOW) {
         // Ignore long-press detection for first few seconds after startup
         // This prevents false trigger during ESP32-S3 boot sequence
-        if (millis() - startupTime < BUTTON_IGNORE_MS) {
-            return;
-        }
-        
+        if (millis() - workingModeStartTime < BUTTON_IGNORE_MS) {
+			resetPressStart = millis();
+			return;
+		}
         unsigned long heldTime = millis() - resetPressStart;
         if (heldTime >= RESET_HOLD_TIME_MS) {
             DEBUG_SERIAL.println("\n[MAIN] Reset button held 5s, clearing config...");
