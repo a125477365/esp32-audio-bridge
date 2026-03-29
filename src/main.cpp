@@ -40,6 +40,8 @@ int wifiRetryCount = 0;
 // Reset button timing
 unsigned long resetPressStart = 0;
 bool resetButtonPressed = false;
+unsigned long startupTime = 0;  // Track startup time for button ignore
+const unsigned long BUTTON_IGNORE_MS = 5000;  // Ignore button long-press for 5s after startup
 
 // Forward declarations
 void enterConfigMode();
@@ -87,6 +89,9 @@ void setup() {
     
     // Load settings from NVS
     settings.loadFromNVS();
+
+    // Record startup time
+    startupTime = millis();
 
     // Initialize reset button
     pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
@@ -336,8 +341,14 @@ void handleResetButton() {
         }
     }
     
-    // Check for long press
+    // Check for long press (but ignore during startup period)
     if (resetButtonPressed && stableState == LOW) {
+        // Ignore long-press detection for first few seconds after startup
+        // This prevents false trigger during ESP32-S3 boot sequence
+        if (millis() - startupTime < BUTTON_IGNORE_MS) {
+            return;
+        }
+        
         unsigned long heldTime = millis() - resetPressStart;
         if (heldTime >= RESET_HOLD_TIME_MS) {
             DEBUG_SERIAL.println("\n[MAIN] Reset button held 5s, clearing config...");
