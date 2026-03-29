@@ -3,18 +3,19 @@
 
 #include <Arduino.h>
 
-// Hardware Pin Definitions
-#define I2S_BCLK_PIN    25
-#define I2S_WS_PIN      33
-#define I2S_DATA_PIN    26
-#define RESET_BUTTON_PIN 0  // BOOT button
+// Hardware Pin Definitions - ESP32-S3 compatible
+// ESP32-S3 I2S can use any GPIO, these are safe choices
+#define I2S_BCLK_PIN 4
+#define I2S_WS_PIN 5
+#define I2S_DATA_PIN 6
+#define RESET_BUTTON_PIN 0 // BOOT button (GPIO 0)
 
 // Default Audio Parameters
-#define DEFAULT_SAMPLE_RATE     44100
+#define DEFAULT_SAMPLE_RATE 44100
 #define DEFAULT_BITS_PER_SAMPLE 16
-#define DEFAULT_CHANNELS        2
-#define DEFAULT_LISTEN_PORT     8000
-#define DEFAULT_BUFFER_MS       200
+#define DEFAULT_CHANNELS 2
+#define DEFAULT_LISTEN_PORT 8000
+#define DEFAULT_BUFFER_MS 200
 
 // Network Defaults
 #define AP_SSID "ESP32_Audio_Setup"
@@ -34,8 +35,12 @@
 #define WIFI_RETRY_INTERVAL_MS 5000
 #define WIFI_MAX_RETRIES 3
 
-// Debug
+// Debug - ESP32-S3 uses USB CDC
+#if ARDUINO_USB_CDC_ON_BOOT
 #define DEBUG_SERIAL Serial
+#else
+#define DEBUG_SERIAL Serial
+#endif
 #define DEBUG_BAUD 115200
 
 // NVS Keys

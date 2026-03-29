@@ -1,20 +1,20 @@
 /**
  * ESP32 WiFi to S/PDIF Digital Audio Bridge
- * 
+ *
  * Features:
  * - Hi-Fi audio support up to 192kHz/32bit
  * - Low jitter via APLL (Audio PLL)
  * - Web-based configuration
  * - Anti-jitter ring buffer
- * 
+ *
  * Hardware:
- * - ESP32-WROOM-32
+ * - ESP32-WROOM-32 / ESP32-S3
  * - I2S to S/PDIF module (CS8406/DP7406)
- * 
+ *
  * Pinout:
- * - BCLK: GPIO 25
- * - WS/LRCLK: GPIO 33
- * - DATA: GPIO 26
+ * - BCLK: GPIO 4 (ESP32-S3)
+ * - WS/LRCLK: GPIO 5 (ESP32-S3)
+ * - DATA: GPIO 6 (ESP32-S3)
  */
 
 #include <Arduino.h>
@@ -54,19 +54,43 @@ void setup() {
     // Initialize serial
     DEBUG_SERIAL.begin(DEBUG_BAUD);
     delay(1000);
-    
     DEBUG_SERIAL.println("\n");
     DEBUG_SERIAL.println("=================================");
     DEBUG_SERIAL.println(" ESP32 Audio Bridge v1.0");
     DEBUG_SERIAL.println(" Hi-Fi WiFi to S/PDIF");
     DEBUG_SERIAL.println("=================================");
     
+    // Check GPIO 0 (BOOT pin) status at startup
+    // If LOW, wait for it to go HIGH (exit download mode)
+    pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+    int bootPinStatus = digitalRead(RESET_BUTTON_PIN);
+    DEBUG_SERIAL.printf("[MAIN] GPIO 0 (BOOT pin) status: %s\n", bootPinStatus == HIGH ? "HIGH (normal)" : "LOW (waiting...)");
+    
+    // If BOOT pin is LOW (download mode), wait for it to go HIGH
+    if (bootPinStatus == LOW) {
+        DEBUG_SERIAL.println("[MAIN] BOOT pin is LOW, waiting for release...");
+        int waitCount = 0;
+        while (digitalRead(RESET_BUTTON_PIN) == LOW && waitCount < 100) {
+            delay(100);
+            waitCount++;
+            if (waitCount % 10 == 0) {
+                DEBUG_SERIAL.printf("[MAIN] Still waiting... (%d seconds)\n", waitCount / 10);
+            }
+        }
+        if (digitalRead(RESET_BUTTON_PIN) == HIGH) {
+            DEBUG_SERIAL.println("[MAIN] BOOT pin released, continuing startup...");
+            delay(500); // Additional delay for stability
+        } else {
+            DEBUG_SERIAL.println("[MAIN] BOOT pin still LOW after 10s, forcing continue...");
+        }
+    }
+    
     // Load settings from NVS
     settings.loadFromNVS();
-    
+
     // Initialize reset button
     pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
-    
+
     // Check if we have WiFi configuration
     if (settings.hasWiFiConfig()) {
         // We have config, try to connect
@@ -80,7 +104,7 @@ void setup() {
 void loop() {
     // Always check reset button
     handleResetButton();
-    
+
     switch (currentState) {
         case STATE_CONFIG_MODE:
             // Handle web server requests
@@ -88,16 +112,16 @@ void loop() {
                 webServer->handleClient();
             }
             break;
-            
+
         case STATE_CONNECTING:
             // Wait for connection (handled in connectToWiFi)
             break;
-            
+
         case STATE_WORKING:
             // Process audio stream
             processAudioStream();
             break;
-            
+
         case STATE_ERROR:
             // Error state - wait for reset
             delay(1000);
@@ -107,17 +131,16 @@ void loop() {
 
 void enterConfigMode() {
     currentState = STATE_CONFIG_MODE;
-    
     DEBUG_SERIAL.println("[MAIN] Entering Config Mode...");
-    
+
     // Start WiFi AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONN);
-    
+
     IPAddress apIP = WiFi.softAPIP();
     DEBUG_SERIAL.printf("[MAIN] AP started: %s\n", apIP.toString().c_str());
     DEBUG_SERIAL.printf("[MAIN] Connect to '%s' and open http://192.168.4.1\n", AP_SSID);
-    
+
     // Start web server and DNS
     webServer = new WebConfigServer();
     webServer->begin();
@@ -125,10 +148,9 @@ void enterConfigMode() {
 
 void enterConnectingMode() {
     currentState = STATE_CONNECTING;
-    
     DEBUG_SERIAL.println("[MAIN] Entering Connecting Mode...");
     DEBUG_SERIAL.printf("[MAIN] Connecting to SSID: %s\n", settings.wifiSSID.c_str());
-    
+
     if (connectToWiFi()) {
         enterWorkingMode();
     } else {
@@ -141,40 +163,49 @@ void enterConnectingMode() {
 
 void enterWorkingMode() {
     currentState = STATE_WORKING;
-    
     DEBUG_SERIAL.println("[MAIN] Entering Working Mode...");
-    
+
+    // Stop AP mode and web server (no longer needed)
+    if (webServer) {
+        webServer->stop();
+        delete webServer;
+        webServer = nullptr;
+    }
+    WiFi.softAPdisconnect(true);  // Turn off AP mode
+    WiFi.mode(WIFI_STA);          // Ensure only STA mode
+    DEBUG_SERIAL.println("[MAIN] AP mode stopped, using STA mode only");
+
     // Calculate buffer size
     size_t bufferSize = settings.calculateBufferSize();
     DEBUG_SERIAL.printf("[MAIN] Buffer size: %u bytes (%u ms)\n", bufferSize, settings.bufferMs);
-    
+
     // Initialize ring buffer
     if (!audioBuffer.init(bufferSize)) {
         DEBUG_SERIAL.println("[MAIN] ERROR: Failed to allocate buffer!");
         currentState = STATE_ERROR;
         return;
     }
-    
+
     // Initialize I2S with user settings
     if (!i2s.begin(settings.sampleRate, settings.bitsPerSample, bufferSize)) {
         DEBUG_SERIAL.println("[MAIN] ERROR: Failed to initialize I2S!");
         currentState = STATE_ERROR;
         return;
     }
-    
+
     // Initialize UDP receiver
     if (!udp.begin(settings.listenPort)) {
         DEBUG_SERIAL.println("[MAIN] ERROR: Failed to start UDP listener!");
         currentState = STATE_ERROR;
         return;
     }
-    
+
     printStatus();
 }
 
 bool connectToWiFi() {
     WiFi.mode(WIFI_STA);
-    
+
     // Configure static IP if needed
     if (settings.ipMode == IP_MODE_STATIC) {
         if (!WiFi.config(settings.staticIP, settings.gateway, settings.subnet, settings.dns)) {
@@ -183,43 +214,52 @@ bool connectToWiFi() {
             DEBUG_SERIAL.printf("[WIFI] Static IP: %s\n", settings.staticIP.toString().c_str());
         }
     }
-    
+
     // Start connection
     WiFi.begin(settings.wifiSSID.c_str(), settings.wifiPassword.c_str());
-    
     wifiRetryCount = 0;
+
     while (wifiRetryCount < WIFI_MAX_RETRIES) {
-        DEBUG_SERIAL.printf("[WIFI] Connecting... attempt %d/%d\n", 
-                           wifiRetryCount + 1, WIFI_MAX_RETRIES);
-        
+        DEBUG_SERIAL.printf("[WIFI] Connecting... attempt %d/%d\n", wifiRetryCount + 1, WIFI_MAX_RETRIES);
+
         unsigned long startTime = millis();
         while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS) {
             if (WiFi.status() == WL_CONNECTED) {
                 DEBUG_SERIAL.println("[WIFI] Connected!");
-                DEBUG_SERIAL.printf("[WIFI] IP: %s\n", WiFi.localIP().toString().c_str());
+                DEBUG_SERIAL.printf("[WIFI] Local IP: %s\n", WiFi.localIP().toString().c_str());
+                DEBUG_SERIAL.printf("[WIFI] Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
+                DEBUG_SERIAL.printf("[WIFI] DNS: %s\n", WiFi.dnsIP().toString().c_str());
+                DEBUG_SERIAL.printf("[WIFI] Subnet: %s\n", WiFi.subnetMask().toString().c_str());
                 return true;
             }
             delay(100);
         }
-        
+
         if (WiFi.status() != WL_CONNECTED) {
             wifiRetryCount++;
             DEBUG_SERIAL.printf("[WIFI] Connection failed, retry in %d ms\n", WIFI_RETRY_INTERVAL_MS);
             delay(WIFI_RETRY_INTERVAL_MS);
         }
     }
-    
+
     return false;
 }
 
 void processAudioStream() {
+    // Check WiFi connection status
+    if (WiFi.status() != WL_CONNECTED) {
+        DEBUG_SERIAL.println("[AUDIO] WiFi disconnected! Reconnecting...");
+        WiFi.reconnect();
+        delay(1000);
+        return;
+    }
+    
     static uint8_t udpBuffer[2048];
     static uint8_t i2sBuffer[2048];
     static bool bufferStarted = false;
-    
+
     // Read from UDP
     int bytesRead = udp.readPacket(udpBuffer, sizeof(udpBuffer));
-    
     if (bytesRead > 0) {
         // Push to ring buffer
         size_t pushed = audioBuffer.push(udpBuffer, bytesRead);
@@ -228,10 +268,10 @@ void processAudioStream() {
             DEBUG_SERIAL.println("[AUDIO] Buffer overflow!");
         }
     }
-    
+
     // Check buffer level for output
     float level = audioBuffer.level();
-    
+
     if (!bufferStarted) {
         // Wait for buffer to reach threshold before starting
         if (level >= BUFFER_START_THRESHOLD) {
@@ -261,23 +301,51 @@ void processAudioStream() {
 void handleResetButton() {
     int buttonState = digitalRead(RESET_BUTTON_PIN);
     
-    if (buttonState == LOW) {
-        // Button pressed
-        if (!resetButtonPressed) {
-            resetButtonPressed = true;
-            resetPressStart = millis();
-        } else {
-            // Check for long press
-            if (millis() - resetPressStart >= RESET_HOLD_TIME_MS) {
-                DEBUG_SERIAL.println("\n[MAIN] Reset button held 5s, clearing config...");
-                settings.reset();
-                ESP.restart();
+    // Debounce: read multiple times to confirm
+    static int stableState = HIGH;
+    static unsigned long lastDebounceTime = 0;
+    const unsigned long DEBOUNCE_DELAY = 50;
+    
+    static int lastButtonState = HIGH;
+    
+    if (buttonState != lastButtonState) {
+        lastDebounceTime = millis();
+    }
+    
+    lastButtonState = buttonState;
+    
+    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+        if (buttonState != stableState) {
+            stableState = buttonState;
+            
+            if (stableState == LOW) {
+                // Button pressed (debounced)
+                if (!resetButtonPressed) {
+                    resetButtonPressed = true;
+                    resetPressStart = millis();
+                    DEBUG_SERIAL.println("[MAIN] BOOT button pressed (GPIO 0 LOW)");
+                }
+            } else {
+                // Button released
+                if (resetButtonPressed) {
+                    DEBUG_SERIAL.println("[MAIN] BOOT button released");
+                }
+                resetButtonPressed = false;
+                resetPressStart = 0;
             }
         }
-    } else {
-        // Button released
-        resetButtonPressed = false;
-        resetPressStart = 0;
+    }
+    
+    // Check for long press
+    if (resetButtonPressed && stableState == LOW) {
+        unsigned long heldTime = millis() - resetPressStart;
+        if (heldTime >= RESET_HOLD_TIME_MS) {
+            DEBUG_SERIAL.println("\n[MAIN] Reset button held 5s, clearing config...");
+            settings.reset();
+            ESP.restart();
+        } else if (heldTime >= 1000 && heldTime % 1000 == 0) {
+            DEBUG_SERIAL.printf("[MAIN] BOOT button held: %lu seconds\n", heldTime / 1000);
+        }
     }
 }
 

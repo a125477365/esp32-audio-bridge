@@ -3,7 +3,15 @@
 
 void AudioSettings::loadFromNVS() {
     Preferences prefs;
-    prefs.begin(NVS_NAMESPACE, true);  // Read-only
+    
+    // Try read-only first, fall back to read-write if namespace doesn't exist
+    bool readOnly = true;
+    if (!prefs.begin(NVS_NAMESPACE, true)) {
+        // Namespace doesn't exist, open in read-write mode to create it
+        prefs.end();
+        readOnly = false;
+        prefs.begin(NVS_NAMESPACE, false);
+    }
     
     // Network
     wifiSSID = prefs.getString(NVK_SSID, "");
@@ -19,7 +27,6 @@ void AudioSettings::loadFromNVS() {
     if (ipStr.length() > 0) subnet.fromString(ipStr);
     ipStr = prefs.getString(NVK_DNS, "");
     if (ipStr.length() > 0) dns.fromString(ipStr);
-    
     listenPort = prefs.getUShort(NVK_PORT, DEFAULT_LISTEN_PORT);
     
     // Audio
@@ -27,12 +34,17 @@ void AudioSettings::loadFromNVS() {
     bitsPerSample = prefs.getUChar(NVK_BITS, DEFAULT_BITS_PER_SAMPLE);
     bufferMs = prefs.getUShort(NVK_BUFFER_MS, DEFAULT_BUFFER_MS);
     
+    // If we created the namespace, write default values
+    if (!readOnly) {
+        saveToNVS();
+    }
+    
     prefs.end();
 }
 
 void AudioSettings::saveToNVS() {
     Preferences prefs;
-    prefs.begin(NVS_NAMESPACE, false);  // Read-write
+    prefs.begin(NVS_NAMESPACE, false); // Read-write
     
     // Network
     prefs.putString(NVK_SSID, wifiSSID);
@@ -74,11 +86,21 @@ bool AudioSettings::hasWiFiConfig() {
 
 size_t AudioSettings::calculateBufferSize() {
     // Buffer size = sample_rate * (bits/8) * channels * buffer_ms / 1000
-    // Example: 44100 * 2 * 2 * 0.2 = 35280 bytes for 200ms stereo 16-bit
+    // Example: 44100 * 2 * 2 * 200 / 1000 = 35280 bytes for 200ms stereo 16-bit
     size_t bytesPerSample = bitsPerSample / 8;
     size_t bytesPerFrame = bytesPerSample * DEFAULT_CHANNELS;
     size_t totalBytes = (sampleRate * bytesPerFrame * bufferMs) / 1000;
     
     // Round up to nearest 1024 for DMA alignment
-    return ((totalBytes + 1023) / 1024) * 1024;
+    totalBytes = ((totalBytes + 1023) / 1024) * 1024;
+    
+    // Limit buffer size to 64KB for devices without PSRAM
+    // Larger buffers require PSRAM
+    #if !defined(BOARD_HAS_PSRAM) || BOARD_HAS_PSRAM == 0
+    if (totalBytes > 65536) {
+        totalBytes = 65536; // 64KB max for internal RAM
+    }
+    #endif
+    
+    return totalBytes;
 }

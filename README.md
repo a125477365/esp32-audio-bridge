@@ -21,24 +21,42 @@ High-fidelity wireless digital audio interface supporting up to 192kHz/32bit aud
 
 | ESP32 Pin | S/PDIF Module |
 |-----------|---------------|
-| GPIO 25   | BCK (Bit Clock) |
-| GPIO 33   | WS/LRCLK (Word Select) |
-| GPIO 26   | DATA |
-| GND       | GND |
+| GPIO 25 | BCK (Bit Clock) |
+| GPIO 33 | WS/LRCLK (Word Select) |
+| GPIO 26 | DATA |
+| GND | GND |
 
 ## Software
 
 ### Build Requirements
-
 - PlatformIO (recommended) or Arduino IDE
 - ESP32 board support package
 
 ### Building with PlatformIO
 
+#### 安装 PlatformIO
 ```bash
 pip install platformio
-pio run
+```
+
+#### 上传固件和文件系统（首次使用必须执行两步）
+```bash
+# 步骤 1: 上传固件
 pio run --target upload
+
+# 步骤 2: 上传 SPIFFS 文件系统（网页配置界面）
+pio run --target uploadfs
+```
+
+> **重要**: 首次烧写或更新网页界面时，必须同时执行以上两步。
+> - `upload` 上传程序代码
+> - `uploadfs` 上传网页文件（data 目录下的 index.html 等）
+> - 如果只修改代码，只需执行 `upload`
+> - 如果只修改网页，只需执行 `uploadfs`
+
+#### 串口监视器
+```bash
+pio device monitor
 ```
 
 ### First Use
