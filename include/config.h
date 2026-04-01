@@ -30,6 +30,25 @@
 #define BUFFER_START_THRESHOLD 0.5f
 #define BUFFER_UNDERRUN_THRESHOLD 0.1f
 
+// ==================== Control Packet Protocol ====================
+// Control packet format:
+// [0xAA][0x55][seq][len_h][len_l][JSON payload]
+//
+// ACK packet format:
+// [0xAA][0x55][seq]['A']['C']['K'][len_h][len_l][JSON payload]
+//
+// Example:
+// Request: {"cmd":"setAudioConfig","sampleRate":96000,"bitsPerSample":32,"channels":2}
+// Response: {"cmd":"ack","originalCmd":"setAudioConfig","status":"ok"}
+
+#define CTRL_MAGIC_0 0xAA
+#define CTRL_MAGIC_1 0x55
+
+// Control packet commands
+#define CMD_SET_AUDIO_CONFIG "setAudioConfig"
+#define CMD_STOP "stop"
+#define CMD_ACK "ack"
+
 // WiFi Retry
 #define WIFI_CONNECT_TIMEOUT_MS 10000
 #define WIFI_RETRY_INTERVAL_MS 5000
