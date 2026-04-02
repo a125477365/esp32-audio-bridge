@@ -1,491 +1,303 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>ESP32 Audio Bridge 配置</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            color: #eee;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 500px;
-            margin: 0 auto;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        
-        .header h1 {
-            font-size: 24px;
-            color: #00d9ff;
-            margin-bottom: 8px;
-        }
-        
-        .header p {
-            font-size: 14px;
-            color: #888;
-        }
-        
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 20px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .card-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: #00d9ff;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .card-title::before {
-            content: '';
-            width: 4px;
-            height: 16px;
-            background: #00d9ff;
-            border-radius: 2px;
-        }
-        
-        .form-group {
-            margin-bottom: 16px;
-        }
-        
-        .form-group label {
-            display: block;
-            font-size: 13px;
-            color: #aaa;
-            margin-bottom: 6px;
-        }
-        
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 8px;
-            background: rgba(0, 0, 0, 0.3);
-            color: #fff;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #00d9ff;
-            box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.15);
-        }
-        
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-        
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .checkbox-group input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: #00d9ff;
-        }
-        
-        .static-fields {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        .static-fields.show {
-            display: block;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .btn {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            margin-top: 10px;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #00d9ff 0%, #00a8cc 100%);
-            color: #fff;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.4);
-        }
-        
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: #aaa;
-        }
-        
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-        
-        .btn-danger {
-            background: linear-gradient(135deg, #ff4757 0%, #c0392b 100%);
-            color: #fff;
-        }
-        
-        .status {
-            text-align: center;
-            padding: 20px;
-            margin-top: 20px;
-            border-radius: 8px;
-            display: none;
-        }
-        
-        .status.success {
-            display: block;
-            background: rgba(46, 204, 113, 0.2);
-            border: 1px solid rgba(46, 204, 113, 0.3);
-            color: #2ecc71;
-        }
-        
-        .status.error {
-            display: block;
-            background: rgba(231, 76, 60, 0.2);
-            border: 1px solid rgba(231, 76, 60, 0.3);
-            color: #e74c3c;
-        }
-        
-        .wifi-scan {
-            position: relative;
-        }
-        
-        .wifi-scan-btn {
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: transparent;
-            border: none;
-            color: #00d9ff;
-            cursor: pointer;
-            padding: 8px;
-            font-size: 18px;
-        }
-        
-        .wifi-list {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            background: rgba(30, 30, 50, 0.98);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            margin-top: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 100;
-            display: none;
-        }
-        
-        .wifi-list.show {
-            display: block;
-        }
-        
-        .wifi-item {
-            padding: 12px 16px;
-            cursor: pointer;
-            transition: background 0.2s;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .wifi-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        
-        .wifi-item .ssid {
-            font-size: 14px;
-        }
-        
-        .wifi-item .rssi {
-            font-size: 12px;
-            color: #888;
-        }
-        
-        .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: #00d9ff;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .hidden {
-            display: none !important;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ESP32 Audio Bridge 配置</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  min-height: 100vh;
+  color: #eee;
+  padding: 20px;
+}
+.container { max-width: 500px; margin: 0 auto; }
+.header { text-align: center; margin-bottom: 30px; }
+.header h1 { font-size: 24px; color: #00d9ff; margin-bottom: 8px; }
+.header p { font-size: 14px; color: #888; }
+.card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: #00d9ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: #00d9ff;
+  border-radius: 2px;
+}
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.form-group input:focus, .form-group select:focus {
+  outline: none;
+  border-color: #00d9ff;
+  box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.15);
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.checkbox-group { display: flex; align-items: center; gap: 8px; }
+.checkbox-group input[type="checkbox"] { width: 18px; height: 18px; accent-color: #00d9ff; }
+.static-fields { display: none; animation: fadeIn 0.3s ease; }
+.static-fields.show { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+.btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 10px;
+}
+.btn-primary { background: linear-gradient(135deg, #00d9ff 0%, #00a8cc 100%); color: #fff; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0, 217, 255, 0.4); }
+.btn-secondary { background: rgba(255, 255, 255, 0.1); color: #aaa; }
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+.status { text-align: center; padding: 20px; margin-top: 20px; border-radius: 8px; display: none; }
+.status.success { display: block; background: rgba(46, 204, 113, 0.2); border: 1px solid rgba(46, 204, 113, 0.3); color: #2ecc71; }
+.status.error { display: block; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.3); color: #e74c3c; }
+.wifi-scan { position: relative; }
+.wifi-scan-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #00d9ff;
+  cursor: pointer;
+  padding: 8px;
+  font-size: 18px;
+}
+.wifi-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: rgba(30, 30, 50, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  display: none;
+}
+.wifi-list.show { display: block; }
+.wifi-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.wifi-item:hover { background: rgba(255, 255, 255, 0.1); }
+.wifi-item .ssid { font-size: 14px; }
+.wifi-item .rssi { font-size: 12px; color: #888; }
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #00d9ff;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.info-box {
+  background: rgba(0, 217, 255, 0.1);
+  border: 1px solid rgba(0, 217, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+.info-box p { font-size: 12px; color: #aaa; margin: 4px 0; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🎵 ESP32 Audio Bridge</h1>
-            <p>WiFi to S/PDIF Digital Audio Interface</p>
-        </div>
-        
-        <form id="configForm" action="/save" method="POST">
-            <div class="card">
-                <div class="card-title">网络配置</div>
-                
-                <div class="form-group wifi-scan">
-                    <label for="ssid">WiFi 名称 (SSID)</label>
-                    <input type="text" id="ssid" name="ssid" placeholder="选择或输入WiFi名称" required>
-                    <button type="button" class="wifi-scan-btn" onclick="scanWiFi()">🔍</button>
-                    <div class="wifi-list" id="wifiList"></div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="pwd">WiFi 密码</label>
-                    <input type="password" id="pwd" name="pwd" placeholder="输入WiFi密码">
-                </div>
-                
-                <div class="form-group">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="staticIP" name="ip_mode" value="1" onchange="toggleStaticIP()">
-                        <label for="staticIP" style="margin-bottom: 0;">使用静态 IP</label>
-                    </div>
-                </div>
-                
-                <div class="static-fields" id="staticFields">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="ip">IP 地址</label>
-                            <input type="text" id="ip" name="ip" placeholder="192.168.1.100">
-                        </div>
-                        <div class="form-group">
-                            <label for="gateway">网关</label>
-                            <input type="text" id="gateway" name="gateway" placeholder="192.168.1.1">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="subnet">子网掩码</label>
-                            <input type="text" id="subnet" name="subnet" placeholder="255.255.255.0">
-                        </div>
-                        <div class="form-group">
-                            <label for="dns">DNS 服务器</label>
-                            <input type="text" id="dns" name="dns" placeholder="8.8.8.8">
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="port">监听端口</label>
-                    <input type="number" id="port" name="port" value="8000" min="1" max="65535" required>
-                </div>
-            </div>
-            
-            <div class="card">
-                <div class="card-title">音频配置</div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="sample_rate">采样率 (Hz)</label>
-                        <select id="sample_rate" name="sample_rate">
-                            <option value="44100">44.1 kHz (CD)</option>
-                            <option value="48000">48 kHz (DVD)</option>
-                            <option value="88200">88.2 kHz</option>
-                            <option value="96000">96 kHz</option>
-                            <option value="176400">176.4 kHz</option>
-                            <option value="192000">192 kHz</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="bits">位深度</label>
-                        <select id="bits" name="bits">
-                            <option value="16">16 bit</option>
-                            <option value="24">24 bit</option>
-                            <option value="32">32 bit</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="buffer_ms">缓冲时长 (ms)</label>
-                    <input type="range" id="buffer_ms" name="buffer_ms" value="200" min="50" max="500" step="10">
-                    <div style="text-align: center; margin-top: 8px;">
-                        <span id="buffer_display">200</span> ms
-                    </div>
-                </div>
-            </div>
-            
-            <button type="submit" class="btn btn-primary" id="saveBtn">💾 保存配置并重启</button>
-            <button type="button" class="btn btn-secondary" onclick="resetConfig()">🗑️ 清除所有配置</button>
-        </form>
-        
-        <div class="status" id="statusMsg"></div>
-    </div>
-    
-    <script>
-        // Buffer slider
-        const bufferSlider = document.getElementById('buffer_ms');
-        const bufferDisplay = document.getElementById('buffer_display');
-        bufferSlider.addEventListener('input', function() {
-            bufferDisplay.textContent = this.value;
-        });
-        
-        // Toggle static IP fields
-        function toggleStaticIP() {
-            const checkbox = document.getElementById('staticIP');
-            const fields = document.getElementById('staticFields');
-            if (checkbox.checked) {
-                fields.classList.add('show');
-            } else {
-                fields.classList.remove('show');
-            }
-        }
-        
-        // WiFi scan
-        function scanWiFi() {
-            const list = document.getElementById('wifiList');
-            list.innerHTML = '<div class="wifi-item"><span class="spinner"></span><span style="margin-left:10px">扫描中...</span></div>';
-            list.classList.add('show');
-            
-            fetch('/scan')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        list.innerHTML = '<div class="wifi-item">未找到WiFi网络</div>';
-                        return;
-                    }
-                    
-                    list.innerHTML = data.map(ap => 
-                        '<div class="wifi-item" onclick="selectWiFi(\'' + ap.ssid + '\')">' +
-                        '<span class="ssid">' + ap.ssid + '</span>' +
-                        '<span class="rssi">' + ap.rssi + ' dBm</span>' +
-                        '</div>'
-                    ).join('');
-                })
-                .catch(err => {
-                    list.innerHTML = '<div class="wifi-item">扫描失败</div>';
-                });
-        }
-        
-        function selectWiFi(ssid) {
-            document.getElementById('ssid').value = ssid;
-            document.getElementById('wifiList').classList.remove('show');
-        }
-        
-        // Close WiFi list when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.wifi-scan')) {
-                document.getElementById('wifiList').classList.remove('show');
-            }
-        });
-        
-        // Form submit
-        document.getElementById('configForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const btn = document.getElementById('saveBtn');
-            btn.innerHTML = '<span class="spinner"></span> 保存中...';
-            btn.disabled = true;
-            
-            const formData = new FormData(this);
-            
-            fetch('/save', {
-                method: 'POST',
-                body: formData
-            })
-            .then(r => r.text())
-            .then(data => {
-                const status = document.getElementById('statusMsg');
-                status.className = 'status success';
-                status.textContent = '✓ 配置已保存，设备正在重启...';
-            })
-            .catch(err => {
-                const status = document.getElementById('statusMsg');
-                status.className = 'status error';
-                status.textContent = '✗ 保存失败，请重试';
-                btn.innerHTML = '💾 保存配置并重启';
-                btn.disabled = false;
-            });
-        });
-        
-        // Reset config
-        function resetConfig() {
-            if (confirm('确定要清除所有配置吗？设备将重启进入配网模式。')) {
-                fetch('/reset', { method: 'POST' })
-                    .then(() => {
-                        const status = document.getElementById('statusMsg');
-                        status.className = 'status success';
-                        status.textContent = '✓ 配置已清除，设备正在重启...';
-                    });
-            }
-        }
-        
-        // Load current config on page load
-        window.onload = function() {
-            fetch('/config')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.ssid) document.getElementById('ssid').value = data.ssid;
-                    if (data.port) document.getElementById('port').value = data.port;
-                    if (data.sample_rate) document.getElementById('sample_rate').value = data.sample_rate;
-                    if (data.bits) document.getElementById('bits').value = data.bits;
-                    if (data.buffer_ms) {
-                        document.getElementById('buffer_ms').value = data.buffer_ms;
-                        document.getElementById('buffer_display').textContent = data.buffer_ms;
-                    }
-                    if (data.ip_mode === 1) {
-                        document.getElementById('staticIP').checked = true;
-                        document.getElementById('staticFields').classList.add('show');
-                        if (data.ip) document.getElementById('ip').value = data.ip;
-                        if (data.gateway) document.getElementById('gateway').value = data.gateway;
-                        if (data.subnet) document.getElementById('subnet').value = data.subnet;
-                        if (data.dns) document.getElementById('dns').value = data.dns;
-                    }
-                })
-                .catch(() => {});  // Ignore errors on first load
-        };
-    </script>
+<div class="container">
+<div class="header">
+<h1>ESP32 Audio Bridge</h1>
+<p>WiFi to S/PDIF Digital Audio Interface</p>
+</div>
+<form id="configForm" action="/save" method="POST">
+<div class="card">
+<div class="card-title">网络配置</div>
+<div class="form-group wifi-scan">
+<label for="ssid">WiFi 名称 (SSID)</label>
+<input type="text" id="ssid" name="ssid" placeholder="选择或输入WiFi名称" required>
+<button type="button" class="wifi-scan-btn" onclick="scanWiFi()">🔍</button>
+<div class="wifi-list" id="wifiList"></div>
+</div>
+<div class="form-group">
+<label for="pwd">WiFi 密码</label>
+<input type="password" id="pwd" name="pwd" placeholder="输入WiFi密码">
+</div>
+<div class="form-group">
+<div class="checkbox-group">
+<input type="checkbox" id="staticIP" name="ip_mode" value="1" onchange="toggleStaticIP()">
+<label for="staticIP" style="margin-bottom: 0;">使用静态 IP</label>
+</div>
+</div>
+<div class="static-fields" id="staticFields">
+<div class="form-row">
+<div class="form-group">
+<label for="ip">IP 地址</label>
+<input type="text" id="ip" name="ip" placeholder="192.168.1.100">
+</div>
+<div class="form-group">
+<label for="gateway">网关</label>
+<input type="text" id="gateway" name="gateway" placeholder="192.168.1.1">
+</div>
+</div>
+<div class="form-row">
+<div class="form-group">
+<label for="subnet">子网掩码</label>
+<input type="text" id="subnet" name="subnet" placeholder="255.255.255.0">
+</div>
+<div class="form-group">
+<label for="dns">DNS 服务器</label>
+<input type="text" id="dns" name="dns" placeholder="8.8.8.8">
+</div>
+</div>
+</div>
+<div class="form-group">
+<label for="port">监听端口</label>
+<input type="number" id="port" name="port" value="8000" min="1" max="65535" required>
+</div>
+</div>
+<div class="info-box">
+<p>💡 自动配置项：</p>
+<p>• 采样率、位深度：由后端动态设置</p>
+<p>• 缓冲时长：根据可用内存自动计算</p>
+</div>
+<button type="submit" class="btn btn-primary" id="saveBtn">保存配置并重启</button>
+<button type="button" class="btn btn-secondary" onclick="resetConfig()">清除所有配置</button>
+</form>
+<div class="status" id="statusMsg"></div>
+</div>
+<script>
+function toggleStaticIP() {
+  const checkbox = document.getElementById('staticIP');
+  const fields = document.getElementById('staticFields');
+  if (checkbox.checked) {
+    fields.classList.add('show');
+  } else {
+    fields.classList.remove('show');
+  }
+}
+
+function scanWiFi() {
+  const list = document.getElementById('wifiList');
+  list.innerHTML = '<div class="wifi-item"><span class="spinner"></span><span style="margin-left:10px">扫描中...</span></div>';
+  list.classList.add('show');
+  fetch('/scan')
+    .then(r => r.json())
+    .then(data => {
+      if (data.length === 0) {
+        list.innerHTML = '<div class="wifi-item">未找到WiFi网络</div>';
+        return;
+      }
+      list.innerHTML = data.map(ap =>
+        '<div class="wifi-item" onclick="selectWiFi(\'' + ap.ssid + '\')">' +
+        '<span class="ssid">' + ap.ssid + '</span>' +
+        '<span class="rssi">' + ap.rssi + ' dBm</span>' +
+        '</div>'
+      ).join('');
+    })
+    .catch(err => {
+      list.innerHTML = '<div class="wifi-item">扫描失败</div>';
+    });
+}
+
+function selectWiFi(ssid) {
+  document.getElementById('ssid').value = ssid;
+  document.getElementById('wifiList').classList.remove('show');
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.wifi-scan')) {
+    document.getElementById('wifiList').classList.remove('show');
+  }
+});
+
+document.getElementById('configForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('saveBtn');
+  btn.innerHTML = '<span class="spinner"></span> 保存中...';
+  btn.disabled = true;
+  const formData = new FormData(this);
+  fetch('/save', { method: 'POST', body: formData })
+    .then(r => r.text())
+    .then(data => {
+      const status = document.getElementById('statusMsg');
+      status.className = 'status success';
+      status.textContent = '✓ 配置已保存，设备正在重启...';
+    })
+    .catch(err => {
+      const status = document.getElementById('statusMsg');
+      status.className = 'status error';
+      status.textContent = '✗ 保存失败，请重试';
+      btn.innerHTML = '保存配置并重启';
+      btn.disabled = false;
+    });
+});
+
+function resetConfig() {
+  if (confirm('确定要清除所有配置吗？设备将重启进入配网模式。')) {
+    fetch('/reset', { method: 'POST' })
+      .then(() => {
+        const status = document.getElementById('statusMsg');
+        status.className = 'status success';
+        status.textContent = '✓ 配置已清除，设备正在重启...';
+      });
+  }
+}
+
+window.onload = function() {
+  fetch('/config')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ssid) document.getElementById('ssid').value = data.ssid;
+      if (data.port) document.getElementById('port').value = data.port;
+      if (data.ip_mode === 1) {
+        document.getElementById('staticIP').checked = true;
+        document.getElementById('staticFields').classList.add('show');
+        if (data.ip) document.getElementById('ip').value = data.ip;
+        if (data.gateway) document.getElementById('gateway').value = data.gateway;
+        if (data.subnet) document.getElementById('subnet').value = data.subnet;
+        if (data.dns) document.getElementById('dns').value = data.dns;
+      }
+    })
+    .catch(() => {});
+};
+</script>
 </body>
 </html>
