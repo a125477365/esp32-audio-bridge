@@ -1,174 +1,253 @@
 #include "i2s_audio.h"
 
 I2SAudio::I2SAudio()
- : _ready(false)
- , _sampleRate(DEFAULT_SAMPLE_RATE)
- , _bitsPerSample(DEFAULT_BITS_PER_SAMPLE)
- , _channels(DEFAULT_CHANNELS)
- , _port(I2S_NUM_0)
+	: _ready(false)
+	, _sampleRate(DEFAULT_SAMPLE_RATE)
+	, _bitsPerSample(DEFAULT_BITS_PER_SAMPLE)
+	, _channels(DEFAULT_CHANNELS)
+	, _volume(100)
+	, _port(I2S_NUM_0)
 {
 }
 
-I2SAudio::~I2SAudio() {
- end();
+I2SAudio::~I2SAudio()
+{
+	end();
 }
 
-bool I2SAudio::begin(uint32_t sampleRate, uint8_t bitsPerSample, size_t bufferSize) {
- if (_ready) {
- end();
- }
- 
- _sampleRate = sampleRate;
- _bitsPerSample = bitsPerSample;
- _channels = DEFAULT_CHANNELS;
- 
- // I2S configuration for Hi-Fi output
- i2s_config_t i2s_config = {
- .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
- .sample_rate = sampleRate,
- .bits_per_sample = (i2s_bits_per_sample_t)bitsPerSample,
- .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
- .communication_format = I2S_COMM_FORMAT_STAND_I2S,
- .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
- .dma_buf_count = 8,
- .dma_buf_len = 1024,
- .use_apll = true, // CRITICAL: Enable Audio PLL for low jitter
- .tx_desc_auto_clear = true,
- .fixed_mclk = 0
- };
+bool I2SAudio::begin(uint32_t sampleRate, uint8_t bitsPerSample, size_t bufferSize)
+{
+	if (_ready) {
+		end();
+	}
+	_sampleRate = sampleRate;
+	_bitsPerSample = bitsPerSample;
+	_channels = DEFAULT_CHANNELS;
 
- // Pin configuration - ESP32-S3 requires mck_io_num to be set
- i2s_pin_config_t pin_config = {
- .mck_io_num = -1, // MCLK not used, set to -1 (I2S_PIN_NO_CHANGE)
- .bck_io_num = I2S_BCLK_PIN,
- .ws_io_num = I2S_WS_PIN,
- .data_out_num = I2S_DATA_PIN,
- .data_in_num = -1
- };
+	// I2S configuration for Hi-Fi output
+	i2s_config_t i2s_config = {
+		.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+		.sample_rate = sampleRate,
+		.bits_per_sample = (i2s_bits_per_sample_t)bitsPerSample,
+		.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+		.communication_format = I2S_COMM_FORMAT_STAND_I2S,
+		.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+		.dma_buf_count = 8,
+		.dma_buf_len = 1024,
+		.use_apll = true,  // CRITICAL: Enable Audio PLL for low jitter
+		.tx_desc_auto_clear = true,
+		.fixed_mclk = 0
+	};
 
- // Install I2S driver
- esp_err_t err = i2s_driver_install(_port, &i2s_config, 0, NULL);
- if (err != ESP_OK) {
- DEBUG_SERIAL.printf("[I2S] Driver install failed: %d\n", err);
- return false;
- }
+	// Pin configuration - ESP32-S3 requires mck_io_num to be set
+	i2s_pin_config_t pin_config = {
+		.mck_io_num = -1,  // MCLK not used, set to -1 (I2S_PIN_NO_CHANGE)
+		.bck_io_num = I2S_BCLK_PIN,
+		.ws_io_num = I2S_WS_PIN,
+		.data_out_num = I2S_DATA_PIN,
+		.data_in_num = -1
+	};
 
- // Set pins
- err = i2s_set_pin(_port, &pin_config);
- if (err != ESP_OK) {
- DEBUG_SERIAL.printf("[I2S] Set pin failed: %d\n", err);
- i2s_driver_uninstall(_port);
- return false;
- }
+	// Install I2S driver
+	esp_err_t err = i2s_driver_install(_port, &i2s_config, 0, NULL);
+	if (err != ESP_OK) {
+		DEBUG_SERIAL.printf("[I2S] Driver install failed: %d\n", err);
+		return false;
+	}
 
- // Clear DMA buffers
- i2s_zero_dma_buffer(_port);
+	// Set pins
+	err = i2s_set_pin(_port, &pin_config);
+	if (err != ESP_OK) {
+		DEBUG_SERIAL.printf("[I2S] Set pin failed: %d\n", err);
+		i2s_driver_uninstall(_port);
+		return false;
+	}
 
- // Verify APLL is being used
- if (!i2s_config.use_apll) {
- DEBUG_SERIAL.println("[I2S] WARNING: APLL not enabled!");
- } else {
- DEBUG_SERIAL.println("[I2S] APLL enabled - low jitter mode");
- }
+	// Clear DMA buffers
+	i2s_zero_dma_buffer(_port);
 
- _ready = true;
- DEBUG_SERIAL.printf("[I2S] Started: %lu Hz, %d bit, %d ch, APLL=%s\n", sampleRate, bitsPerSample, _channels, i2s_config.use_apll ? "ON" : "OFF");
- return true;
+	// Verify APLL is being used
+	if (!i2s_config.use_apll) {
+		DEBUG_SERIAL.println("[I2S] WARNING: APLL not enabled!");
+	} else {
+		DEBUG_SERIAL.println("[I2S] APLL enabled - low jitter mode");
+	}
+
+	_ready = true;
+	DEBUG_SERIAL.printf("[I2S] Started: %lu Hz, %d bit, %d ch, APLL=%s\n",
+		sampleRate, bitsPerSample, _channels, i2s_config.use_apll ? "ON" : "OFF");
+	return true;
 }
 
-bool I2SAudio::reconfigure(uint32_t sampleRate, uint8_t bitsPerSample, uint8_t channels) {
- DEBUG_SERIAL.printf("[I2S] Reconfiguring: %lu Hz / %d bit / %d ch\n", sampleRate, bitsPerSample, channels);
+bool I2SAudio::reconfigure(uint32_t sampleRate, uint8_t bitsPerSample, uint8_t channels)
+{
+	DEBUG_SERIAL.printf("[I2S] Reconfiguring: %lu Hz / %d bit / %d ch\n", sampleRate, bitsPerSample, channels);
 
- // Stop current I2S
- if (_ready) {
- i2s_driver_uninstall(_port);
- _ready = false;
- delay(10); // Give time for cleanup
- }
+	// Stop current I2S
+	if (_ready) {
+		i2s_driver_uninstall(_port);
+		_ready = false;
+		delay(10);  // Give time for cleanup
+	}
 
- // Update settings
- _sampleRate = sampleRate;
- _bitsPerSample = bitsPerSample;
- _channels = channels;
+	// Update settings
+	_sampleRate = sampleRate;
+	_bitsPerSample = bitsPerSample;
+	_channels = channels;
 
- // Determine channel format
- i2s_channel_fmt_t channelFormat = (channels == 1) ? I2S_CHANNEL_FMT_ONLY_LEFT : I2S_CHANNEL_FMT_RIGHT_LEFT;
+	// Determine channel format
+	i2s_channel_fmt_t channelFormat = (channels == 1) ? I2S_CHANNEL_FMT_ONLY_LEFT : I2S_CHANNEL_FMT_RIGHT_LEFT;
 
- // I2S configuration
- i2s_config_t i2s_config = {
- .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
- .sample_rate = sampleRate,
- .bits_per_sample = (i2s_bits_per_sample_t)bitsPerSample,
- .channel_format = channelFormat,
- .communication_format = I2S_COMM_FORMAT_STAND_I2S,
- .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
- .dma_buf_count = 8,
- .dma_buf_len = 1024,
- .use_apll = true, // Always use APLL for low jitter
- .tx_desc_auto_clear = true,
- .fixed_mclk = 0
- };
+	// I2S configuration
+	i2s_config_t i2s_config = {
+		.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+		.sample_rate = sampleRate,
+		.bits_per_sample = (i2s_bits_per_sample_t)bitsPerSample,
+		.channel_format = channelFormat,
+		.communication_format = I2S_COMM_FORMAT_STAND_I2S,
+		.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+		.dma_buf_count = 8,
+		.dma_buf_len = 1024,
+		.use_apll = true,  // Always use APLL for low jitter
+		.tx_desc_auto_clear = true,
+		.fixed_mclk = 0
+	};
 
- // Pin configuration - ESP32-S3 requires mck_io_num to be set
- i2s_pin_config_t pin_config = {
- .mck_io_num = -1, // MCLK not used
- .bck_io_num = I2S_BCLK_PIN,
- .ws_io_num = I2S_WS_PIN,
- .data_out_num = I2S_DATA_PIN,
- .data_in_num = -1
- };
+	// Pin configuration - ESP32-S3 requires mck_io_num to be set
+	i2s_pin_config_t pin_config = {
+		.mck_io_num = -1,  // MCLK not used
+		.bck_io_num = I2S_BCLK_PIN,
+		.ws_io_num = I2S_WS_PIN,
+		.data_out_num = I2S_DATA_PIN,
+		.data_in_num = -1
+	};
 
- // Install I2S driver
- esp_err_t err = i2s_driver_install(_port, &i2s_config, 0, NULL);
- if (err != ESP_OK) {
- DEBUG_SERIAL.printf("[I2S] Reconfigure failed: %d\n", err);
- return false;
- }
+	// Install I2S driver
+	esp_err_t err = i2s_driver_install(_port, &i2s_config, 0, NULL);
+	if (err != ESP_OK) {
+		DEBUG_SERIAL.printf("[I2S] Reconfigure failed: %d\n", err);
+		return false;
+	}
 
- // Set pins
- err = i2s_set_pin(_port, &pin_config);
- if (err != ESP_OK) {
- DEBUG_SERIAL.printf("[I2S] Set pin failed: %d\n", err);
- i2s_driver_uninstall(_port);
- return false;
- }
+	// Set pins
+	err = i2s_set_pin(_port, &pin_config);
+	if (err != ESP_OK) {
+		DEBUG_SERIAL.printf("[I2S] Set pin failed: %d\n", err);
+		i2s_driver_uninstall(_port);
+		return false;
+	}
 
- // Clear DMA buffers
- i2s_zero_dma_buffer(_port);
+	// Clear DMA buffers
+	i2s_zero_dma_buffer(_port);
 
- _ready = true;
- DEBUG_SERIAL.printf("[I2S] Reconfigured: %lu Hz / %d bit / %d ch (APLL ON)\n", sampleRate, bitsPerSample, channels);
- return true;
+	_ready = true;
+	DEBUG_SERIAL.printf("[I2S] Reconfigured: %lu Hz / %d bit / %d ch (APLL ON)\n", sampleRate, bitsPerSample, channels);
+	return true;
 }
 
-void I2SAudio::end() {
- if (!_ready) return;
- i2s_driver_uninstall(_port);
- _ready = false;
- DEBUG_SERIAL.println("[I2S] Stopped");
+void I2SAudio::end()
+{
+	if (!_ready) return;
+	i2s_driver_uninstall(_port);
+	_ready = false;
+	DEBUG_SERIAL.println("[I2S] Stopped");
 }
 
-size_t I2SAudio::write(const uint8_t* data, size_t len) {
- if (!_ready || data == nullptr || len == 0) {
- return 0;
- }
- size_t bytes_written = 0;
- esp_err_t err = i2s_write(_port, data, len, &bytes_written, pdMS_TO_TICKS(100));
- if (err != ESP_OK) {
- DEBUG_SERIAL.printf("[I2S] Write error: %d\n", err);
- }
- return bytes_written;
+void I2SAudio::setVolume(uint8_t volume)
+{
+	_volume = (volume > 100) ? 100 : volume;
+	DEBUG_SERIAL.printf("[I2S] Volume set to %d%%\n", _volume);
 }
 
-void I2SAudio::writeSilence(size_t bytes) {
- if (!_ready || bytes == 0) return;
+size_t I2SAudio::write(const uint8_t* data, size_t len)
+{
+	if (!_ready || data == nullptr || len == 0) {
+		return 0;
+	}
 
- // Allocate and fill with zeros
- uint8_t* silence = (uint8_t*)malloc(bytes);
- if (silence == nullptr) return;
- memset(silence, 0, bytes);
+	// If volume is 100%, write directly without processing
+	if (_volume == 100) {
+		size_t bytes_written = 0;
+		esp_err_t err = i2s_write(_port, data, len, &bytes_written, pdMS_TO_TICKS(100));
+		if (err != ESP_OK) {
+			DEBUG_SERIAL.printf("[I2S] Write error: %d\n", err);
+		}
+		return bytes_written;
+	}
 
- size_t bytes_written = 0;
- i2s_write(_port, silence, bytes, &bytes_written, pdMS_TO_TICKS(100));
- free(silence);
+	// If volume is 0%, output silence
+	if (_volume == 0) {
+		writeSilence(len);
+		return len;
+	}
+
+	// Apply volume scaling
+	// Allocate buffer for processed audio
+	uint8_t* processed = (uint8_t*)malloc(len);
+	if (processed == nullptr) {
+		DEBUG_SERIAL.println("[I2S] Failed to allocate volume buffer");
+		return 0;
+	}
+
+	// Calculate volume multiplier (0.0 to 1.0)
+	float volMultiplier = _volume / 100.0f;
+
+	// Process based on bits per sample
+	if (_bitsPerSample == 16) {
+		// 16-bit samples
+		int16_t* src = (int16_t*)data;
+		int16_t* dst = (int16_t*)processed;
+		size_t sampleCount = len / 2;
+		for (size_t i = 0; i < sampleCount; i++) {
+			dst[i] = (int16_t)(src[i] * volMultiplier);
+		}
+	} else if (_bitsPerSample == 24) {
+		// 24-bit samples (packed as 3 bytes)
+		for (size_t i = 0; i < len; i += 3) {
+			// Extract 24-bit value (little endian)
+			int32_t sample = data[i] | (data[i+1] << 8) | (data[i+2] << 16);
+			// Sign extend
+			if (sample & 0x800000) sample |= 0xFF000000;
+			// Apply volume
+			sample = (int32_t)(sample * volMultiplier);
+			// Pack back
+			processed[i] = sample & 0xFF;
+			processed[i+1] = (sample >> 8) & 0xFF;
+			processed[i+2] = (sample >> 16) & 0xFF;
+		}
+	} else if (_bitsPerSample == 32) {
+		// 32-bit samples
+		int32_t* src = (int32_t*)data;
+		int32_t* dst = (int32_t*)processed;
+		size_t sampleCount = len / 4;
+		for (size_t i = 0; i < sampleCount; i++) {
+			dst[i] = (int32_t)(src[i] * volMultiplier);
+		}
+	} else {
+		// Unsupported format, just copy
+		memcpy(processed, data, len);
+	}
+
+	size_t bytes_written = 0;
+	esp_err_t err = i2s_write(_port, processed, len, &bytes_written, pdMS_TO_TICKS(100));
+	free(processed);
+
+	if (err != ESP_OK) {
+		DEBUG_SERIAL.printf("[I2S] Write error: %d\n", err);
+	}
+	return bytes_written;
+}
+
+void I2SAudio::writeSilence(size_t bytes)
+{
+	if (!_ready || bytes == 0) return;
+
+	// Allocate and fill with zeros
+	uint8_t* silence = (uint8_t*)malloc(bytes);
+	if (silence == nullptr) return;
+	memset(silence, 0, bytes);
+
+	size_t bytes_written = 0;
+	i2s_write(_port, silence, bytes, &bytes_written, pdMS_TO_TICKS(100));
+	free(silence);
 }

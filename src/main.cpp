@@ -260,7 +260,11 @@ void processAudioStream() {
      } else {
       DEBUG_SERIAL.println("[AUDIO] ERROR: Reconfigure failed!");
      }
-    } else if (ctrl.cmd == CMD_STOP) {
+    } else if (ctrl.cmd == CMD_SET_VOLUME) {
+						udp.sendAck(ctrl.seq, CMD_SET_VOLUME, "ok");
+						i2s.setVolume(ctrl.volume);
+						DEBUG_SERIAL.printf("[AUDIO] Volume set to %d%%\\n", ctrl.volume);
+					} else if (ctrl.cmd == CMD_STOP) {
      udp.sendAck(ctrl.seq, CMD_STOP, "ok");
 
      audioBuffer.clear();

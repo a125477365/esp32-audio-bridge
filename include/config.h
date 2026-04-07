@@ -46,6 +46,7 @@
 
 // Control packet commands
 #define CMD_SET_AUDIO_CONFIG "setAudioConfig"
+#define CMD_SET_VOLUME "setVolume"
 #define CMD_STOP "stop"
 #define CMD_ACK "ack"
 
