@@ -75,6 +75,7 @@
 #define NVK_PORT "port"
 #define NVK_SAMPLE_RATE "sample_rate"
 #define NVK_BITS "bits"
+#define NVK_CHANNELS "channels"
 #define NVK_BUFFER_MS "buffer_ms"
 
 // System States

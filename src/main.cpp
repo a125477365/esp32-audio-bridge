@@ -171,13 +171,16 @@ void enterWorkingMode() {
   return;
  }
 
- if (!i2s.begin(DEFAULT_SAMPLE_RATE, DEFAULT_BITS_PER_SAMPLE, bufferSize)) {
+ if (!i2s.begin(settings.lastSampleRate, settings.lastBitsPerSample, bufferSize)) {
   DEBUG_SERIAL.println("[MAIN] ERROR: Failed to initialize I2S!");
   currentState = STATE_ERROR;
   return;
  }
 
- if (!udp.begin(settings.listenPort)) {
+ 
+  DEBUG_SERIAL.printf("[MAIN] I2S initialized: %lu Hz / %d bit / %d ch (from last session)\n",
+    settings.lastSampleRate, settings.lastBitsPerSample, settings.lastChannels);
+if (!udp.begin(settings.listenPort)) {
   DEBUG_SERIAL.println("[MAIN] ERROR: Failed to start UDP listener!");
   currentState = STATE_ERROR;
   return;
@@ -254,7 +257,10 @@ void processAudioStream() {
       DEBUG_SERIAL.printf("[AUDIO] Reconfigured to %lu Hz / %d bit / %d ch\n",
        ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
 
-      size_t newBufferSize = settings.calculateOptimalBufferSize(ctrl.sampleRate, ctrl.bitsPerSample);
+       // Save to NVS for recovery after reboot
+ settings.saveAudioConfig(ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
+
+ size_t newBufferSize = settings.calculateOptimalBufferSize(ctrl.sampleRate, ctrl.bitsPerSample);
       DEBUG_SERIAL.printf("[AUDIO] Optimal buffer: %u bytes (%u ms)\n",
        newBufferSize, settings.bufferMs);
      } else {
