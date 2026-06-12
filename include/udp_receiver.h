@@ -46,13 +46,20 @@ public:
 	IPAddress getSenderIP() const { return _senderIP; }
 	uint16_t getSenderPort() const { return _senderPort; }
 	bool isRunning() const { return _running; }
-	
+
+	// RX statistics (for link diagnostics)
+	uint32_t rxPackets() const { return _rxPackets; }
+	uint64_t rxBytes() const { return _rxBytes; }
+	void resetStats() { _rxPackets = 0; _rxBytes = 0; }
+
 private:
 	WiFiUDP _udp;
 	bool _running;
 	uint16_t _port;
 	IPAddress _senderIP;
 	uint16_t _senderPort;
+	uint32_t _rxPackets = 0;
+	uint64_t _rxBytes = 0;
 };
 
 #endif // UDP_RECEIVER_H

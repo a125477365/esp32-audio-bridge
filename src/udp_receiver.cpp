@@ -51,6 +51,10 @@ int UDPReceiver::readPacket(uint8_t* buffer, size_t maxLen)
 	_senderPort = _udp.remotePort();
 	// Read packet data
 	int bytesRead = _udp.read(buffer, (packetSize < (int)maxLen) ? packetSize : maxLen);
+	if (bytesRead > 0) {
+		_rxPackets++;
+		_rxBytes += bytesRead;
+	}
 	return bytesRead;
 }
 

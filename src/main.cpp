@@ -21,6 +21,10 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
+#include <ArduinoJson.h>
+#include <lwip/etharp.h>
+#include <lwip/netif.h>
 #include "config.h"
 #include "audio_settings.h"
 #include "ring_buffer.h"
@@ -50,6 +54,7 @@ void enterConfigMode();
 void enterConnectingMode();
 void enterWorkingMode();
 void handleResetButton();
+void handleSerialConfig();
 void processAudioStream();
 bool connectToWiFi();
 void printStatus();
@@ -99,11 +104,22 @@ void setup() {
 
 void loop() {
  handleResetButton();
+ handleSerialConfig();
 
  switch (currentState) {
   case STATE_CONFIG_MODE:
    if (webServer) {
     webServer->handleClient();
+   }
+   // Self-heal: if credentials exist (e.g. router was down at boot),
+   // retry STA connection every 60s instead of staying stuck in AP mode
+   {
+    static unsigned long lastWifiRetry = 0;
+    if (settings.hasWiFiConfig() && millis() - lastWifiRetry > 60000) {
+     lastWifiRetry = millis();
+     DEBUG_SERIAL.println("[MAIN] Config mode: retrying stored WiFi...");
+     enterConnectingMode();
+    }
    }
    break;
 
@@ -130,8 +146,10 @@ void enterConfigMode() {
  DEBUG_SERIAL.printf("[MAIN] AP started: %s\n", apIP.toString().c_str());
  DEBUG_SERIAL.printf("[MAIN] Connect to '%s' and open http://192.168.4.1\n", AP_SSID);
 
- webServer = new WebConfigServer();
- webServer->begin();
+ if (!webServer) {
+  webServer = new WebConfigServer();
+  webServer->begin();
+ }
 }
 
 void enterConnectingMode() {
@@ -142,8 +160,9 @@ void enterConnectingMode() {
  if (connectToWiFi()) {
   enterWorkingMode();
  } else {
-  DEBUG_SERIAL.println("[MAIN] WiFi connection failed, entering config mode");
-  settings.reset();
+  // Keep stored credentials: the AP may just be temporarily down.
+  // Config AP + serial provisioning both stay available in config mode.
+  DEBUG_SERIAL.println("[MAIN] WiFi connection failed, entering config mode (credentials kept)");
   enterConfigMode();
  }
 }
@@ -191,6 +210,10 @@ if (!udp.begin(settings.listenPort)) {
 
 bool connectToWiFi() {
  WiFi.mode(WIFI_STA);
+ // Accept any AP security level — iPhone hotspots use WPA2/WPA3
+ // transitional mode which can fail the handshake at the default
+ // minimum (WPA2) on some IDF versions
+ WiFi.setMinSecurity(WIFI_AUTH_WEP);
 
  if (settings.ipMode == IP_MODE_STATIC) {
   if (!WiFi.config(settings.staticIP, settings.gateway, settings.subnet, settings.dns)) {
@@ -201,6 +224,18 @@ bool connectToWiFi() {
  }
 
  WiFi.begin(settings.wifiSSID.c_str(), settings.wifiPassword.c_str());
+
+ // Workaround for WPA2/WPA3 transitional APs (e.g. iPhone hotspots):
+ // declare the STA as PMF-incapable so the AP negotiates plain WPA2-PSK
+ // instead of WPA3-SAE, whose handshake times out on IDF 4.4
+ wifi_config_t conf;
+ if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK) {
+  conf.sta.pmf_cfg.capable = false;
+  conf.sta.pmf_cfg.required = false;
+  esp_wifi_set_config(WIFI_IF_STA, &conf);
+  esp_wifi_disconnect();
+  esp_wifi_connect();
+ }
  wifiRetryCount = 0;
 
  while (wifiRetryCount < WIFI_MAX_RETRIES) {
@@ -209,6 +244,9 @@ bool connectToWiFi() {
   unsigned long startTime = millis();
   while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS) {
    if (WiFi.status() == WL_CONNECTED) {
+    // Disable modem power-save: keeps ARP/UDP latency low and stable,
+    // which is essential for real-time audio streaming
+    WiFi.setSleep(false);
     DEBUG_SERIAL.println("[WIFI] Connected!");
     DEBUG_SERIAL.printf("[WIFI] Local IP: %s\n", WiFi.localIP().toString().c_str());
     DEBUG_SERIAL.printf("[WIFI] Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
@@ -237,39 +275,81 @@ void processAudioStream() {
   return;
  }
 
+ // Periodic gratuitous ARP: some APs (notably phone hotspots) drop
+ // client ARP broadcasts, so peers lose our MAC mapping and the device
+ // becomes unreachable. Announcing ourselves keeps peer caches fresh.
+ // Only needed while idle — during playback the 5Hz buffer-level reports
+ // to the sender already keep peer ARP caches fresh.
+ static unsigned long lastGarp = 0;
+ if (udp.getSenderPort() == 0 && millis() - lastGarp > 30000) {
+  lastGarp = millis();
+  if (netif_default != nullptr) {
+   etharp_gratuitous(netif_default);
+  }
+ }
+
+ // Buffer level feedback to the sender (closed-loop rate control):
+ // the backend compensates WiFi packet loss by speeding up / pausing
+ static unsigned long lastLevelReport = 0;
+ if (millis() - lastLevelReport > 200 && udp.getSenderPort() != 0) {
+  lastLevelReport = millis();
+  char json[64];
+  int n = snprintf(json, sizeof(json), "{\"cmd\":\"bufLevel\",\"level\":%.2f}", audioBuffer.level());
+  uint8_t pkt[80];
+  pkt[0] = CTRL_MAGIC_0;
+  pkt[1] = CTRL_MAGIC_1;
+  pkt[2] = 0; // seq unused for unsolicited reports
+  pkt[3] = (n >> 8) & 0xFF;
+  pkt[4] = n & 0xFF;
+  memcpy(pkt + 5, json, n);
+  udp.sendToSender(pkt, 5 + n);
+ }
+
  static uint8_t udpBuffer[2048];
  static uint8_t i2sBuffer[2048];
  static bool bufferStarted = false;
 
- int bytesRead = udp.readPacket(udpBuffer, sizeof(udpBuffer));
-
- if (bytesRead > 0) {
+ // Drain ALL pending UDP packets before touching I2S: the blocking I2S
+ // write below can stall this loop for a few ms while lwIP's UDP receive
+ // queue only holds ~6 packets — reading one packet per loop iteration
+ // loses packets and starves the ring buffer (start/underrun oscillation)
+ int bytesRead;
+ while ((bytesRead = udp.readPacket(udpBuffer, sizeof(udpBuffer))) > 0) {
   if (udp.isControlPacket(udpBuffer, bytesRead)) {
    ControlPacket ctrl = udp.parseControlPacket(udpBuffer, bytesRead);
    if (ctrl.valid) {
     if (ctrl.cmd == CMD_SET_AUDIO_CONFIG) {
-     udp.sendAck(ctrl.seq, CMD_SET_AUDIO_CONFIG, "ok");
-
      audioBuffer.clear();
      bufferStarted = false;
 
-     if (i2s.reconfigure(ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels)) {
+     bool reconfigOk = i2s.reconfigure(ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
+     if (reconfigOk) {
       DEBUG_SERIAL.printf("[AUDIO] Reconfigured to %lu Hz / %d bit / %d ch\n",
        ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
 
-       // Save to NVS for recovery after reboot
- settings.saveAudioConfig(ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
+      // Save to NVS for recovery after reboot
+      settings.saveAudioConfig(ctrl.sampleRate, ctrl.bitsPerSample, ctrl.channels);
 
- size_t newBufferSize = settings.calculateOptimalBufferSize(ctrl.sampleRate, ctrl.bitsPerSample);
-      DEBUG_SERIAL.printf("[AUDIO] Optimal buffer: %u bytes (%u ms)\n",
-       newBufferSize, settings.bufferMs);
+      // Resize ring buffer to match the new format's bandwidth
+      size_t newBufferSize = settings.calculateOptimalBufferSize(ctrl.sampleRate, ctrl.bitsPerSample);
+      if (newBufferSize != audioBuffer.size()) {
+       if (audioBuffer.init(newBufferSize)) {
+        DEBUG_SERIAL.printf("[AUDIO] Ring buffer resized: %u bytes (%u ms)\n",
+         newBufferSize, settings.bufferMs);
+       } else {
+        DEBUG_SERIAL.println("[AUDIO] ERROR: Ring buffer resize failed!");
+        reconfigOk = false;
+       }
+      }
      } else {
       DEBUG_SERIAL.println("[AUDIO] ERROR: Reconfigure failed!");
      }
+     // ACK after reconfigure so the backend learns about failures
+     udp.sendAck(ctrl.seq, CMD_SET_AUDIO_CONFIG, reconfigOk ? "ok" : "error");
     } else if (ctrl.cmd == CMD_SET_VOLUME) {
 						udp.sendAck(ctrl.seq, CMD_SET_VOLUME, "ok");
 						i2s.setVolume(ctrl.volume);
-						DEBUG_SERIAL.printf("[AUDIO] Volume set to %d%%\\n", ctrl.volume);
+						DEBUG_SERIAL.printf("[AUDIO] Volume set to %d%%\n", ctrl.volume);
 					} else if (ctrl.cmd == CMD_STOP) {
      udp.sendAck(ctrl.seq, CMD_STOP, "ok");
 
@@ -280,9 +360,15 @@ void processAudioStream() {
     }
    }
   } else {
-   size_t pushed = audioBuffer.push(udpBuffer, bytesRead);
-   if (pushed < bytesRead) {
-    DEBUG_SERIAL.println("[AUDIO] Buffer overflow!");
+   if (audioBuffer.freeSpace() >= (size_t)bytesRead) {
+    audioBuffer.push(udpBuffer, bytesRead);
+   } else {
+    // Drop the whole packet: a partial write would shift the sample
+    // frame boundary and swap L/R channels for the rest of the stream
+    static uint32_t dropCount = 0;
+    if ((++dropCount % 50) == 1) {
+     DEBUG_SERIAL.println("[AUDIO] Buffer overflow, packet dropped");
+    }
    }
   }
  }
@@ -302,12 +388,105 @@ void processAudioStream() {
   } else {
    size_t available = audioBuffer.available();
    if (available > 0) {
-    size_t toRead = (available < sizeof(i2sBuffer)) ? available : sizeof(i2sBuffer);
+    // Small write quantum (~5ms of audio) keeps the blocking time short
+    // so the UDP drain loop above runs often enough to avoid packet loss
+    const size_t writeQuantum = 1024;
+    size_t toRead = (available < writeQuantum) ? available : writeQuantum;
     size_t bytesReadFromBuffer = audioBuffer.pop(i2sBuffer, toRead);
     if (bytesReadFromBuffer > 0) {
      i2s.write(i2sBuffer, bytesReadFromBuffer);
     }
    }
+  }
+ }
+}
+
+/**
+ * Serial provisioning channel (USB CDC)
+ *
+ * Line-based JSON commands, so the device can be configured headlessly
+ * without joining the config AP:
+ *   {"cmd":"setWifi","ssid":"MyAP","password":"secret"}  -> save + reboot
+ *   {"cmd":"status"}                                      -> one-line JSON status
+ *   {"cmd":"reset"}                                       -> clear config + reboot
+ */
+void handleSerialConfig() {
+ static String line;
+ while (DEBUG_SERIAL.available() > 0) {
+  char c = (char)DEBUG_SERIAL.read();
+  if (c == '\r') continue;
+  if (c != '\n') {
+   if (line.length() < 512) line += c;
+   continue;
+  }
+  String cmdLine = line;
+  line = "";
+  cmdLine.trim();
+  if (cmdLine.length() == 0 || cmdLine[0] != '{') continue;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, cmdLine)) {
+   DEBUG_SERIAL.println("{\"ok\":false,\"error\":\"bad json\"}");
+   continue;
+  }
+  const char* cmd = doc["cmd"] | "";
+  if (strcmp(cmd, "setWifi") == 0) {
+   const char* ssid = doc["ssid"] | "";
+   const char* password = doc["password"] | "";
+   if (strlen(ssid) == 0) {
+    DEBUG_SERIAL.println("{\"ok\":false,\"error\":\"missing ssid\"}");
+    continue;
+   }
+   settings.wifiSSID = String(ssid);
+   settings.wifiPassword = String(password);
+   settings.ipMode = IP_MODE_DHCP;
+   if (doc["port"].is<uint16_t>()) settings.listenPort = doc["port"].as<uint16_t>();
+   settings.saveToNVS();
+   DEBUG_SERIAL.printf("{\"ok\":true,\"cmd\":\"setWifi\",\"ssid\":\"%s\"}\n", ssid);
+   delay(200);
+   ESP.restart();
+  } else if (strcmp(cmd, "status") == 0) {
+   const char* stateName =
+    currentState == STATE_WORKING ? "working" :
+    currentState == STATE_CONFIG_MODE ? "config" :
+    currentState == STATE_CONNECTING ? "connecting" : "error";
+   DEBUG_SERIAL.printf(
+    "{\"ok\":true,\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"port\":%u,\"rate\":%lu,\"bits\":%u,\"rssi\":%d,\"rxPackets\":%lu,\"rxBytes\":%llu,\"bufLevel\":%.2f}\n",
+    stateName,
+    settings.wifiSSID.c_str(),
+    WiFi.localIP().toString().c_str(),
+    settings.listenPort,
+    settings.lastSampleRate,
+    settings.lastBitsPerSample,
+    WiFi.RSSI(),
+    (unsigned long)udp.rxPackets(),
+    (unsigned long long)udp.rxBytes(),
+    audioBuffer.level());
+  } else if (strcmp(cmd, "reset") == 0) {
+   DEBUG_SERIAL.println("{\"ok\":true,\"cmd\":\"reset\"}");
+   settings.reset();
+   delay(200);
+   ESP.restart();
+  } else if (strcmp(cmd, "udptest") == 0) {
+   // Connectivity diagnostic: fire a few UDP packets at a host so we can
+   // verify the device->LAN direction independently of the receive path
+   const char* host = doc["host"] | "";
+   uint16_t testPort = doc["port"] | 9999;
+   IPAddress target;
+   if (strlen(host) == 0 || !target.fromString(host)) {
+    DEBUG_SERIAL.println("{\"ok\":false,\"error\":\"bad host\"}");
+   } else {
+    WiFiUDP testUdp;
+    for (int i = 0; i < 5; i++) {
+     testUdp.beginPacket(target, testPort);
+     testUdp.printf("esp32-udptest-%d ip=%s", i, WiFi.localIP().toString().c_str());
+     testUdp.endPacket();
+     delay(100);
+    }
+    DEBUG_SERIAL.printf("{\"ok\":true,\"cmd\":\"udptest\",\"sent\":5,\"to\":\"%s:%u\"}\n", host, testPort);
+   }
+  } else {
+   DEBUG_SERIAL.println("{\"ok\":false,\"error\":\"unknown cmd\"}");
   }
  }
 }

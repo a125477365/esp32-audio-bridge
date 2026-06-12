@@ -119,11 +119,13 @@ size_t AudioSettings::calculateOptimalBufferSize(uint32_t sampleRate, uint8_t bi
   size_t usableMemory = (freeHeap > 32768) ? (freeHeap - 32768) : 8192;
 
   // Limit to reasonable buffer size
-  // Max 128KB for PSRAM devices, 48KB for internal RAM only
+  // Max 128KB for PSRAM devices, 96KB for internal RAM only
+  // (ESP32-S3 has 512KB SRAM; ~96KB ring buffer leaves ample headroom
+  //  and gives ~500ms of jitter absorption at 48kHz/16bit)
 #if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM == 1
   size_t maxBufferSize = 131072;  // 128KB
 #else
-  size_t maxBufferSize = 49152;  // 48KB for internal RAM
+  size_t maxBufferSize = 98304;  // 96KB for internal RAM
 #endif
 
   if (usableMemory > maxBufferSize) {
@@ -145,10 +147,9 @@ size_t AudioSettings::calculateOptimalBufferSize(uint32_t sampleRate, uint8_t bi
   if (calculatedBufferMs < 50) calculatedBufferMs = 50;
   if (calculatedBufferMs > 1000) calculatedBufferMs = 1000;
 
-  // If bufferMs is 0 (auto mode), update it
-  if (bufferMs == 0) {
-    bufferMs = (uint16_t)calculatedBufferMs;
-  }
+  // bufferMs is always derived from available memory for the current
+  // format (a stale persisted value would silently cap the buffer)
+  bufferMs = (uint16_t)calculatedBufferMs;
 
   // Calculate final buffer size
   size_t totalBytes = bytesPerMs * bufferMs;
