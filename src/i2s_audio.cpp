@@ -36,12 +36,13 @@ bool I2SAudio::begin(uint32_t sampleRate, uint8_t bitsPerSample, size_t bufferSi
 		.dma_buf_len = 512,   // 512 frames/buf: keeps DMA RAM modest even at 32-bit stereo
 		.use_apll = true,  // CRITICAL: Enable Audio PLL for low jitter
 		.tx_desc_auto_clear = true,
-		.fixed_mclk = 0
+		// CS8406 REQUIRES a master clock; drive MCLK at 256*Fs from the APLL
+		.fixed_mclk = (int)(sampleRate * I2S_MCLK_MULTIPLIER)
 	};
 
-	// Pin configuration - ESP32-S3 requires mck_io_num to be set
+	// Pin configuration - route MCLK to a real GPIO for the CS8406
 	i2s_pin_config_t pin_config = {
-		.mck_io_num = -1,  // MCLK not used, set to -1 (I2S_PIN_NO_CHANGE)
+		.mck_io_num = I2S_MCLK_PIN,
 		.bck_io_num = I2S_BCLK_PIN,
 		.ws_io_num = I2S_WS_PIN,
 		.data_out_num = I2S_DATA_PIN,
@@ -110,12 +111,13 @@ bool I2SAudio::reconfigure(uint32_t sampleRate, uint8_t bitsPerSample, uint8_t c
 		.dma_buf_len = 512,   // 512 frames/buf: keeps DMA RAM modest even at 32-bit stereo
 		.use_apll = true,  // Always use APLL for low jitter
 		.tx_desc_auto_clear = true,
-		.fixed_mclk = 0
+		// CS8406 REQUIRES a master clock; drive MCLK at 256*Fs from the APLL
+		.fixed_mclk = (int)(sampleRate * I2S_MCLK_MULTIPLIER)
 	};
 
-	// Pin configuration - ESP32-S3 requires mck_io_num to be set
+	// Pin configuration - route MCLK to a real GPIO for the CS8406
 	i2s_pin_config_t pin_config = {
-		.mck_io_num = -1,  // MCLK not used
+		.mck_io_num = I2S_MCLK_PIN,
 		.bck_io_num = I2S_BCLK_PIN,
 		.ws_io_num = I2S_WS_PIN,
 		.data_out_num = I2S_DATA_PIN,

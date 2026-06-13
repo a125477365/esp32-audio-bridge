@@ -4,11 +4,22 @@
 #include <Arduino.h>
 
 // Hardware Pin Definitions - ESP32-S3 compatible
-// ESP32-S3 I2S can use any GPIO, these are safe choices
+// ESP32-S3 I2S can route any signal (incl. MCLK) to any GPIO via the GPIO matrix.
+// Wiring to the CS8406 S/PDIF transmitter board:
+//   CS8406 MCK  <- I2S_MCLK_PIN   (256Fs master clock — REQUIRED by CS8406)
+//   CS8406 BCK  <- I2S_BCLK_PIN   (bit clock, 64Fs)
+//   CS8406 LRCK <- I2S_WS_PIN     (word/left-right clock)
+//   CS8406 DIN  <- I2S_DATA_PIN   (serial audio data)
+//   CS8406 GND  <-> ESP32 GND
+//   CS8406 powered by its own USB-C 5V (do NOT also feed it from ESP32 5V)
+#define I2S_MCLK_PIN 16 // MCLK output — CS8406 datasheet: "MCK必须提供" (256Fs)
 #define I2S_BCLK_PIN 4
 #define I2S_WS_PIN 5
 #define I2S_DATA_PIN 6
 #define RESET_BUTTON_PIN 0 // BOOT button (GPIO 0)
+
+// CS8406 master-clock ratio: MCLK = 256 * sampleRate
+#define I2S_MCLK_MULTIPLIER 256
 
 // Default Audio Parameters
 #define DEFAULT_SAMPLE_RATE 44100
